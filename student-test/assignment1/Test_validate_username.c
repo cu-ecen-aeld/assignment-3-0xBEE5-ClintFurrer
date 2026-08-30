@@ -15,7 +15,9 @@
 void test_validate_my_username()
 {
     const char *myUser = my_username();
-    const char *myUserConf = malloc_username_from_conf_file();
+    char *myUserConf = malloc_username_from_conf_file();
     
     TEST_ASSERT_EQUAL_STRING_MESSAGE(myUser, myUserConf, "User strings do not match :(");	
+    
+    free(myUserConf);
 }
