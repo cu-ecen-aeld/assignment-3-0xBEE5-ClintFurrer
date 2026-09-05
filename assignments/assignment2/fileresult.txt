@@ -1,0 +1,5 @@
+clint@AESD:~/Documents/AESD_work/assignment-1-0xBEE5-ClintFurrer/finder-app$ file writer.o
+writer.o: ELF 64-bit LSB relocatable, ARM aarch64, version 1 (SYSV), with debug_info, not stripped
+clint@AESD:~/Documents/AESD_work/assignment-1-0xBEE5-ClintFurrer/finder-app$ file writer
+writer: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 3.7.0, with debug_info, not stripped
+clint@AESD:~/Documents/AESD_work/assignment-1-0xBEE5-ClintFurrer/finder-app$ 
