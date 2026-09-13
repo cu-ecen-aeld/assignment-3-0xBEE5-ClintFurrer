@@ -4,7 +4,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <sys/wait.h>
-#include <string.h>
 #include <fcntl.h> 
 #include <stdio.h>
 /**
@@ -28,18 +27,8 @@ bool do_system(const char *cmd)
     return status;
 }
 
-/**
-* @param count -The numbers of variables passed to the function. The variables are command to execute.
-*   followed by arguments to pass to the command
-*   Since exec() does not perform path expansion, the command to execute needs
-*   to be an absolute path.
-* @param ... - A list of 1 or more arguments after the @param count argument.
-*   The first is always the full path to the command to execute with execv()
-*   The remaining arguments are a list of arguments to pass to the command in execv()
-* @return true if the command @param ... with arguments @param arguments were executed successfully
-*   using the execv() call, false if an error occurred, either in invocation of the
-*   fork, waitpid, or execv() command, or if a non-zero return value was returned
-*   by the command issued in @param arguments with the specified arguments.
+/*
+* Debug print helper
 */
 static void print_helper(char **arr)
 {
@@ -55,7 +44,19 @@ static void print_helper(char **arr)
     }
 }
 
-
+/**
+* @param count -The numbers of variables passed to the function. The variables are command to execute.
+*   followed by arguments to pass to the command
+*   Since exec() does not perform path expansion, the command to execute needs
+*   to be an absolute path.
+* @param ... - A list of 1 or more arguments after the @param count argument.
+*   The first is always the full path to the command to execute with execv()
+*   The remaining arguments are a list of arguments to pass to the command in execv()
+* @return true if the command @param ... with arguments @param arguments were executed successfully
+*   using the execv() call, false if an error occurred, either in invocation of the
+*   fork, waitpid, or execv() command, or if a non-zero return value was returned
+*   by the command issued in @param arguments with the specified arguments.
+*/
 bool do_exec(int count, ...)
 {
     va_list args;
@@ -74,7 +75,7 @@ bool do_exec(int count, ...)
     fflush(stdout);
     pid_t pid;
     int exeStat = true;
-    pid = fork();
+    pid = fork(); //create kid process
     if (pid == -1)
     {
         return false;
@@ -92,7 +93,7 @@ bool do_exec(int count, ...)
     {
         int pid_status;
         pid_t wait_status;
-        wait_status = waitpid(pid, &pid_status, 0);
+        wait_status = waitpid(pid, &pid_status, 0); //waiting on the kid to complete
         printf("Wait status is: %d\r\n", pid_status);
         if (wait_status == -1)
         {
@@ -100,7 +101,7 @@ bool do_exec(int count, ...)
             printf("waitpid failed with -1\r\n");
         }
         int exited_status;
-        exited_status = WIFEXITED (pid_status);
+        exited_status = WIFEXITED (pid_status); //getting kid process status
         printf("exited code %d\r\n", exited_status);
         if (exited_status)
         {
