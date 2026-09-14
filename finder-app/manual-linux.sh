@@ -40,7 +40,7 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
 
     # TODO: Add your kernel build steps here
     echo "make clean executing"
-    make ARCH=${ARCH} CROSS_COMPILE=aarch64-none-linux-gnu- mrproper #clean
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} mrproper #clean
     echo "make defconfig executing"
     make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig #defconfig
     echo "make vmlinux executing"
@@ -49,11 +49,11 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     #make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} modules
     echo "make devicetree executing"
     make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} dtbs
-    echo move image to rootfs
+    echo "Adding the Image in outdir"
     cp arch/${ARCH}/boot/Image "${OUTDIR}/"
+    echo compile complete
 fi
 
-echo "Adding the Image in outdir"
 
 echo "Creating the staging directory for the root filesystem"
 cd "$OUTDIR"
@@ -110,7 +110,7 @@ INTERPRETER=$(${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter
 LIBS=$(${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library")
 echo "libs print of ${LIBS}"
 # TODO: Add library dependencies to rootfs
-#used google gemini plase see README
+#used google gemini for the 2 lib dependencoes fucntions plase see README
 if [ -n "$INTERPRETER" ]
 then
     echo found program interpreter
