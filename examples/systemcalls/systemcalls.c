@@ -1,5 +1,11 @@
 #include "systemcalls.h"
-
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <fcntl.h> 
+#include <stdio.h>
 /**
  * @param cmd the command to execute with system()
  * @return true if the command in @param cmd was executed
@@ -9,15 +15,33 @@
 */
 bool do_system(const char *cmd)
 {
+    int status = system(cmd);
+    if (status != 0)
+    {
+        status = false; //cmd failed
+    }
+    else
+    {
+        status = true; //system() call completed with success
+    }
+    return status;
+}
 
 /*
- * TODO  add your code here
- *  Call the system() function with the command set in the cmd
- *   and return a boolean true if the system() call completed with success
- *   or false() if it returned a failure
+* Debug print helper
 */
-
-    return true;
+static void print_helper(char **arr)
+{
+    int nullCnt = 0;
+    for(int idx = 0; arr[idx] != NULL; idx++)
+    {
+        printf("Element [%d]: %s \n\r", idx, arr[idx]);
+        nullCnt++;
+    }
+    if (arr[nullCnt] == NULL)
+    {
+        printf("NULL is in element %d\n\r", nullCnt);
+    }
 }
 
 /**
@@ -33,7 +57,6 @@ bool do_system(const char *cmd)
 *   fork, waitpid, or execv() command, or if a non-zero return value was returned
 *   by the command issued in @param arguments with the specified arguments.
 */
-
 bool do_exec(int count, ...)
 {
     va_list args;
@@ -45,23 +68,58 @@ bool do_exec(int count, ...)
         command[i] = va_arg(args, char *);
     }
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
-
-/*
- * TODO:
- *   Execute a system command by calling fork, execv(),
- *   and wait instead of system (see LSP page 161).
- *   Use the command[0] as the full path to the command to execute
- *   (first argument to execv), and use the remaining arguments
- *   as second argument to the execv() command.
- *
-*/
-
     va_end(args);
 
-    return true;
+    printf("recieved command string is: \r\n");
+    print_helper(command);
+    fflush(stdout);
+    pid_t pid;
+    int exeStat = true;
+    pid = fork(); //create kid process
+    if (pid == -1)
+    {
+        return false;
+    }
+    printf("got pid number %d\r\n", pid);
+    if (pid == 0) //child process 
+    {
+        const char *path = command[0];
+        printf("calling execv...\r\n");
+        int status = execv(path, command);
+        printf("execv has failed status is :( %d\r\n", status);
+        exit(EXIT_FAILURE);
+    }
+    else if(pid > 0) //parent
+    {
+        int pid_status;
+        pid_t wait_status;
+        wait_status = waitpid(pid, &pid_status, 0); //waiting on the kid to complete
+        printf("Wait status is: %d\r\n", pid_status);
+        if (wait_status == -1)
+        {
+            exeStat = false;
+            printf("waitpid failed with -1\r\n");
+        }
+        int exited_status;
+        exited_status = WIFEXITED (pid_status); //getting kid process status
+        printf("exited code %d\r\n", exited_status);
+        if (exited_status)
+        {
+            printf("checking the child process...\r\n");   
+            int kid_exit_code = WEXITSTATUS(pid_status);
+            printf("pid_exit code %d\r\n", kid_exit_code);
+            if (kid_exit_code != 0) 
+            {
+                exeStat = false;
+            }
+        }
+        if (pid_status != 0)
+        {
+            exeStat = false;
+        }
+    }
+    printf("exit status is: %d\r\n", exeStat);
+    return exeStat;
 }
 
 /**
@@ -80,20 +138,73 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
         command[i] = va_arg(args, char *);
     }
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
-
-
-/*
- * TODO
- *   Call execv, but first using https://stackoverflow.com/a/13784315/1446624 as a refernce,
- *   redirect standard out to a file specified by outputfile.
- *   The rest of the behaviour is same as do_exec()
- *
-*/
-
     va_end(args);
 
-    return true;
+    printf("Starting my redirect\r\n");
+    printf("File path is %s\r\n", outputfile);
+    if (outputfile == NULL)
+    {
+        return false;
+    }
+    int fd = open(outputfile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd == -1)
+    {
+        printf("File did not open\r\n");
+        return false;
+    }
+    int pid;
+    int exeStat = true;
+    pid = fork(); //create the kid process
+    switch(pid)
+    {
+        case -1: //kid failed to be created 
+            close(fd);
+            return false;
+        case 0:
+            int status;
+            status = dup2(fd, 1); //redirect the output to stdout printf will not print to terminal after this
+            close(fd);
+            if (status == -1)
+            {
+                printf("dup2 failed...");
+                exit(EXIT_FAILURE);
+            }
+            const char *path = command[0];
+            status = execv(path, command);
+            exit(EXIT_FAILURE);
+        default:
+            close(fd);
+    }
+
+    if(pid > 0) //parent
+    {
+        int pid_status;
+        pid_t wait_status;
+        wait_status = waitpid(pid, &pid_status, 0); //wait on the kid process
+        printf("Wait status is: %d\r\n", pid_status);
+        if (wait_status == -1)
+        {
+            exeStat = false;
+            printf("waitpid failed with -1\r\n");
+        }
+        int exited_status;
+        exited_status = WIFEXITED (pid_status);
+        printf("exited code %d\r\n", exited_status);
+        if (exited_status)
+        {
+            printf("checking the child process...\r\n");   
+            int kid_exit_code = WEXITSTATUS(pid_status);
+            printf("pid_exit code %d\r\n", kid_exit_code);
+            if (kid_exit_code != 0) 
+            {
+                exeStat = false; //kid process failed
+            }
+        }
+        if (pid_status != 0)
+        {
+            exeStat = false;
+        }
+    }
+    printf("exit status is: %d\r\n", exeStat);
+    return exeStat;  
 }
