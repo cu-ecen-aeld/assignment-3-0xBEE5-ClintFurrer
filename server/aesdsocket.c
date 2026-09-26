@@ -42,13 +42,16 @@ int main(int argc, char *argv[])
     struct addrinfo hints, *servinfo, *ptr;
     struct sockaddr_storage client_addr;
     socklen_t s_in_size;
+    pid_t pid;
     int addrinfo_status;
     int socket_fd;
     int conn_fd;
     int bind_status;
     int listen_status;
+    int daemonFLG = 0;
     int sock_bind_err_cnt = 0;
     int sigStatus;
+    int yes=1;
     char ipaddr_buf[64];
     char inDataBuff[1024];
     
@@ -56,6 +59,17 @@ int main(int argc, char *argv[])
     openlog(NULL, 0, LOG_USER); // open the logging
     printf("hello server\n");
     
+    const char *prams = argv[1]; //copy input prams
+    printf("input prams %s\n", prams);
+    if (prams != NULL)
+    {
+        int pramStatus = strcmp(prams, "-d");
+        if (pramStatus == 0)
+        {
+            daemonFLG = 1;
+        }
+    }
+    printf("daemon FLAG status %d\n",daemonFLG);
     memset(&mysig, 0, sizeof(struct sigaction));
     memset(&hints, 0, sizeof hints); // zero out struct
     mysig.sa_handler = handle_signal;
@@ -89,7 +103,7 @@ int main(int argc, char *argv[])
         ipv4 = (struct sockaddr_in *)ptr->ai_addr;
         addr = &(ipv4->sin_addr);
         inet_ntop(ptr->ai_family, addr, ipaddr_buf, sizeof ipaddr_buf);
-        printf("ip address I think %s\n", ipaddr_buf);
+        syslog(LOG_DEBUG,"My address :P %s\n", ipaddr_buf);
 
         socket_fd = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
         if (socket_fd == -1)
@@ -98,6 +112,13 @@ int main(int argc, char *argv[])
             sock_bind_err_cnt++;
             syslog(LOG_ERR, "socket function call failed :( %d\n", saved_errno);
         }
+
+        if (setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &yes,
+                sizeof(int)) == -1) {
+            perror("setsockopt");
+            exit(1);
+        }
+
         bind_status = bind(socket_fd, ptr->ai_addr, ptr->ai_addrlen);
         if (bind_status != 0)
         {
@@ -108,14 +129,64 @@ int main(int argc, char *argv[])
         break;
     }
 
-    freeaddrinfo(servinfo); // all done with this structure
-
     if (ptr == NULL)
     {
         syslog(LOG_ERR, "Error count in socket and or bind :( %d\n", sock_bind_err_cnt);
         syslog(LOG_ERR, "Errors in socket or in bind :( %d\n", errno);
         return -1;
     }
+    freeaddrinfo(servinfo); // all done with this structure
+
+    if (daemonFLG == 1)
+    {
+        pid = fork(); //make new process
+        if (pid == -1)
+        {
+            syslog(LOG_ERR, "Error in fork could not make new process :( %d\n", errno);
+            return -1;
+        }
+        //exit parent
+        if (pid > 0)
+        {
+            exit(0);
+        }
+        int procGrpStat = setsid(); //make new process group and session
+        if (procGrpStat == -1)
+        {
+            syslog(LOG_ERR, "Error setsid failed :( %d\n", errno);
+            return -1;
+        }
+        pid = fork();
+        if (pid < 0)
+        {
+            syslog(LOG_ERR, "Error in fork could not make second process :( %d\n", errno);
+            exit(1);
+        }
+        if (pid > 0) //exit first child process
+        {
+            exit(0);
+        }
+        int chgdirStatus = chdir("/");
+        if (chgdirStatus == -1)
+        {
+            syslog(LOG_ERR, "Error failed change to root dir :( %d\n", errno);
+            exit(1);
+        }
+        //close out the standard files
+        close(STDIN_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        //redirect to null
+        int fdclose = open("/dev/null", O_RDWR);
+        if (fdclose != -1)
+        {
+            dup2(fdclose, STDIN_FILENO);
+            dup2(fdclose, STDOUT_FILENO);
+            dup2(fdclose, STDERR_FILENO);
+            close(fdclose);
+        }
+    }
+
     // open the file if it does not exist create it
     int fd = open("/var/tmp/aesdsocketdata", O_RDWR | O_CREAT | O_APPEND, 0644); 
     if (fd == -1)
@@ -149,7 +220,7 @@ int main(int argc, char *argv[])
         }
         struct sockaddr_in *s = (struct sockaddr_in *)&client_addr;
         inet_ntop(AF_INET, &(s->sin_addr), ipaddr_buf, sizeof ipaddr_buf);
-        printf("ip address connected %s\n", ipaddr_buf);
+        syslog(LOG_DEBUG,"ip address connected %s\n", ipaddr_buf);
 
         int TX_RX_FLG = 0;
         int in_cnt;
@@ -173,7 +244,7 @@ int main(int argc, char *argv[])
             char *first_n = memchr(inDataBuff, '\n', in_cnt); //look for the new line packet terminator 
             if (first_n != NULL)
             {
-                //printf("new line dectected\n");
+                syslog(LOG_DEBUG,"new line dectected\n");
                 //printf("made %d writes\n", data_wr_cnt);
                 TX_RX_FLG = 1;
             }            
@@ -192,16 +263,16 @@ int main(int argc, char *argv[])
             }
             if (bytes_read == 0)
             {
-                //printf("hit read 0 confirm %ld\n", bytes_read);
+                syslog(LOG_DEBUG,"hit read 0 confirm %ld\n", bytes_read);
                 TX_RX_FLG = 1;
                 break;
             }
-            //printf("Sending! data back\n");
+            syslog(LOG_DEBUG,"Sending! data back\n");
             send(conn_fd, inDataBuff, bytes_read, 0);
         } while (TX_RX_FLG != 1);
         
-        //printf("out of do while\n");
-        //printf("sig FLAG status %d\n", signal_received);
+        syslog(LOG_DEBUG,"out of do while\n");
+        syslog(LOG_DEBUG,"sig FLAG status %d\n", signal_received);
         close(conn_fd);
         syslog(LOG_DEBUG, "Closed connection from %s\n", ipaddr_buf);
     }
@@ -212,12 +283,12 @@ int main(int argc, char *argv[])
     int del_status = remove("/var/tmp/aesdsocketdata");
     if (del_status !=0)
     {
-        printf("file did not delete...\n");
+        syslog(LOG_ERR,"file did not delete...\n");
     }
     else
     {
-        printf("file is gone!\n");
+        syslog(LOG_DEBUG,"file is gone!\n");
     }
-    printf("GOOD Bye!\n");
+    syslog(LOG_DEBUG,"GOOD Bye!\n");
     return 0;
 }
