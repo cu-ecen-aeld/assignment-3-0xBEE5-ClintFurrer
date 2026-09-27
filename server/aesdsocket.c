@@ -25,7 +25,7 @@ volatile sig_atomic_t signal_received = 0;
 
 void handle_signal(int sig) 
 {
-    signal_received = 1; 
+    signal_received = 1; //set signal flag
     if (sig == SIGINT)
     {
         syslog(LOG_DEBUG, "Caugth SIGINT Signal\n");
@@ -60,23 +60,23 @@ int main(int argc, char *argv[])
     printf("hello server\n");
     
     const char *prams = argv[1]; //copy input prams
-    printf("input prams %s\n", prams);
+    printf("input prams %s\n", prams); //debug
     if (prams != NULL)
     {
-        int pramStatus = strcmp(prams, "-d");
+        int pramStatus = strcmp(prams, "-d"); //look for the param -d option
         if (pramStatus == 0)
         {
             daemonFLG = 1;
         }
     }
-    printf("daemon FLAG status %d\n",daemonFLG);
-    memset(&mysig, 0, sizeof(struct sigaction));
+    printf("daemon FLAG status %d\n",daemonFLG); //debug
+    memset(&mysig, 0, sizeof(struct sigaction)); //zero out
     memset(&hints, 0, sizeof hints); // zero out struct
     mysig.sa_handler = handle_signal;
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
     hints.ai_flags = AI_PASSIVE; // use my IP
-
+    //set up the signals to catch sigterm and sinint
     sigStatus = sigaction(SIGTERM, &mysig, NULL);
     if (sigStatus != 0)
     {
@@ -89,13 +89,13 @@ int main(int argc, char *argv[])
         syslog(LOG_ERR, "signal SIGINT failed to register :( %d\n", errno);
         return -1;        
     }    
-    addrinfo_status = getaddrinfo(NULL, PORT_num, &hints, &servinfo);
+    addrinfo_status = getaddrinfo(NULL, PORT_num, &hints, &servinfo); //network helper function
     if (addrinfo_status != 0)
     {
         syslog(LOG_ERR, "get addr info function failed :( %d\n", errno);
         return -1;
     }
-
+    //get a socket then bind to it. Also sets socket option to have kernel drop the connection and not hold it
     for(ptr = servinfo; ptr != NULL; ptr = ptr->ai_next)
     {
         void *addr;
@@ -104,11 +104,11 @@ int main(int argc, char *argv[])
         addr = &(ipv4->sin_addr);
         inet_ntop(ptr->ai_family, addr, ipaddr_buf, sizeof ipaddr_buf);
         syslog(LOG_DEBUG,"My address :P %s\n", ipaddr_buf);
-
+        //get the socket
         socket_fd = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
         if (socket_fd == -1)
         {
-            int saved_errno = errno;
+            int saved_errno = errno; //debug
             sock_bind_err_cnt++;
             syslog(LOG_ERR, "socket function call failed :( %d\n", saved_errno);
         }
@@ -118,7 +118,7 @@ int main(int argc, char *argv[])
             perror("setsockopt");
             exit(1);
         }
-
+        //bind to socket
         bind_status = bind(socket_fd, ptr->ai_addr, ptr->ai_addrlen);
         if (bind_status != 0)
         {
@@ -128,7 +128,7 @@ int main(int argc, char *argv[])
         }
         break;
     }
-
+    //check for any errors that happen with socket and bind
     if (ptr == NULL)
     {
         syslog(LOG_ERR, "Error count in socket and or bind :( %d\n", sock_bind_err_cnt);
@@ -137,7 +137,7 @@ int main(int argc, char *argv[])
     }
     freeaddrinfo(servinfo); // all done with this structure
 
-    if (daemonFLG == 1)
+    if (daemonFLG == 1) //if daemon option set then execute this
     {
         pid = fork(); //make new process
         if (pid == -1)
@@ -156,7 +156,7 @@ int main(int argc, char *argv[])
             syslog(LOG_ERR, "Error setsid failed :( %d\n", errno);
             return -1;
         }
-        pid = fork();
+        pid = fork(); //second fork to ensure terminal disconnect and true back ground process
         if (pid < 0)
         {
             syslog(LOG_ERR, "Error in fork could not make second process :( %d\n", errno);
@@ -166,7 +166,7 @@ int main(int argc, char *argv[])
         {
             exit(0);
         }
-        int chgdirStatus = chdir("/");
+        int chgdirStatus = chdir("/"); //change to root dir
         if (chgdirStatus == -1)
         {
             syslog(LOG_ERR, "Error failed change to root dir :( %d\n", errno);
@@ -205,11 +205,11 @@ int main(int argc, char *argv[])
         close(socket_fd);
         return -1;
     }
-
+    //run main loop to read and write
     while(signal_received == 0)
     {
         s_in_size = sizeof client_addr;
-        conn_fd = accept(socket_fd, (struct sockaddr *)&client_addr, &s_in_size);
+        conn_fd = accept(socket_fd, (struct sockaddr *)&client_addr, &s_in_size); //accept an incoming client connection
         if (conn_fd == -1)
         {
             if (signal_received || errno == EINTR)
@@ -218,24 +218,23 @@ int main(int argc, char *argv[])
             }
             syslog(LOG_ERR, "accept has failed :( %d\n", errno);
         }
+        //get the client ip address and log it
         struct sockaddr_in *s = (struct sockaddr_in *)&client_addr;
         inet_ntop(AF_INET, &(s->sin_addr), ipaddr_buf, sizeof ipaddr_buf);
         syslog(LOG_DEBUG,"ip address connected %s\n", ipaddr_buf);
 
         int TX_RX_FLG = 0;
         int in_cnt;
-        //int data_wr_cnt = 0;
         ssize_t ret;
         ssize_t bytes_read;
-        do
-        {
+        do //read client data stream
+        {   //read the incoming data stream
             in_cnt = recv(conn_fd, inDataBuff, sizeof(inDataBuff) - 1, 0);
             if (in_cnt <= 0)
             {
                 break; //client disconnectd or socket error
             }
-            ret = write(fd, inDataBuff, in_cnt); //start writing the data stream 
-            //data_wr_cnt++;
+            ret = write(fd, inDataBuff, in_cnt); //start writing the data stream to file
             if (ret == -1)
             {
                 syslog(LOG_ERR, "File write failed :( %d\n", errno);
@@ -245,15 +244,14 @@ int main(int argc, char *argv[])
             if (first_n != NULL)
             {
                 syslog(LOG_DEBUG,"new line dectected\n");
-                //printf("made %d writes\n", data_wr_cnt);
-                TX_RX_FLG = 1;
+                TX_RX_FLG = 1; //found termination of data stream
             }            
         } while (TX_RX_FLG != 1);
         fsync(fd); //force data to file
         lseek(fd, 0, SEEK_SET); //set to the beginning of file
         TX_RX_FLG = 0; //reset FLG
-        do
-        {
+        do //send loop of receieved client data
+        {   //read data back out of the file
             bytes_read = read(fd, inDataBuff, sizeof(inDataBuff));
             if (bytes_read == -1)
             {
@@ -261,16 +259,16 @@ int main(int argc, char *argv[])
                 TX_RX_FLG = 1;
                 break;
             }
-            if (bytes_read == 0)
+            if (bytes_read == 0) //end of file
             {
                 syslog(LOG_DEBUG,"hit read 0 confirm %ld\n", bytes_read);
-                TX_RX_FLG = 1;
+                TX_RX_FLG = 1; //exit
                 break;
             }
             syslog(LOG_DEBUG,"Sending! data back\n");
             send(conn_fd, inDataBuff, bytes_read, 0);
         } while (TX_RX_FLG != 1);
-        
+        //log debug messages
         syslog(LOG_DEBUG,"out of do while\n");
         syslog(LOG_DEBUG,"sig FLAG status %d\n", signal_received);
         close(conn_fd);
@@ -278,9 +276,9 @@ int main(int argc, char *argv[])
     }
 
     while(signal_received == 0); //waiting for signal to shutdown
-    close(socket_fd);    
+    close(socket_fd);    //close out handlers
     close(fd);
-    int del_status = remove("/var/tmp/aesdsocketdata");
+    int del_status = remove("/var/tmp/aesdsocketdata"); //delete file
     if (del_status !=0)
     {
         syslog(LOG_ERR,"file did not delete...\n");
