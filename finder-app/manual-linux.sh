@@ -124,7 +124,7 @@ echo making device nodes
 sudo mknod -m 666 dev/null c 1 3
 sudo mknod -m 600 dev/console c 5 1
 # TODO: Clean and build the writer utility
-cd /home/clint/Documents/AESD_work/assignment-1-0xBEE5-ClintFurrer/finder-app
+cd "${FINDER_APP_DIR}"
 make clean
 make CROSS_COMPILE=aarch64-none-linux-gnu-
 # TODO: Copy the finder related scripts and executables to the /home directory
