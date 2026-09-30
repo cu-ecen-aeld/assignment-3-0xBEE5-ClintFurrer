@@ -44,7 +44,7 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     echo "make defconfig executing"
     make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig #defconfig
     echo "make vmlinux executing"
-    make -j4 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} all #vmlinux
+    make -j16 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} all #vmlinux
     #echo "make modules executing"
     #make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} modules
     echo "make devicetree executing"
@@ -106,48 +106,18 @@ make CONFIG_PREFIX=${OUTDIR}/rootfs ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} 
 
 echo "Library dependencies"
 cd ${OUTDIR}/rootfs
-INTERPRETER=$(${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter")
-LIBS=$(${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library")
-echo "libs print of ${LIBS}"
-# TODO: Add library dependencies to rootfs
-#used google gemini for the 2 lib dependencoes fucntions plase see README
-INTERPRETER=$(${CROSS_COMPILE}readelf -l bin/busybox | grep "program interpreter" | sed -r 's/.*Requesting program interpreter: (.*)]/\1/')
 
-if [ -n "$INTERPRETER" ]; then
-    echo "Found interpreter: $INTERPRETER"
-    
-    # Extract only the filename from the path
-    INT_NAME=$(basename "$INTERPRETER")
-    
-    # Search for it explicitly in lib64 subpaths inside sysroot
-    INT_PATH=$(find "$SYSROOT/lib64" "$SYSROOT/usr/lib64" -name "$INT_NAME" -print -quit 2>/dev/null)
-    
-    if [ -n "$INT_PATH" ]; then
-        echo "Copying interpreter from $INT_PATH to $OUTDIR/rootfs/lib64"
-        cp -d "$INT_PATH" "$OUTDIR/rootfs/lib64"
-    else
-        echo "Warning: Interpreter $INT_NAME not found in sysroot lib64 paths."
-    fi
-fi
-# Automatically find the sysroot folder
-SYSROOT=$(${CROSS_COMPILE}gcc -print-sysroot)
-# Use a while loop instead of a for loop to avoid word splitting
-${CROSS_COMPILE}readelf -d bin/busybox | grep "Shared library" | sed -r 's/.*\[(.*)\]/\1/' | while read -r LIB; do
-    # Skip any unexpected empty lines
-    [ -z "$LIB" ] && continue
-    
-    echo "Searching for: $LIB"
-    
-    # Search inside the toolchain sysroot lib64 paths
-    LIB_PATH=$(find "$SYSROOT/lib64" "$SYSROOT/usr/lib64" -name "$LIB" -print -quit 2>/dev/null)
-    
-    if [ -n "$LIB_PATH" ]; then
-        echo "Found! Copying $LIB_PATH to $OUTDIR/rootfs/lib64"
-        cp -d "$LIB_PATH" "$OUTDIR/rootfs/lib64"
-    else
-        echo "ERROR: Could not find $LIB inside $SYSROOT lib64 directories"
-    fi
-done
+echo "Library dependencies"
+${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
+${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
+
+#Add library dependencies to rootfs
+export SYSROOT=$(${CROSS_COMPILE}gcc -print-sysroot)
+#place the lib files in the correct folders doing this hardcoded.
+cp -a "$SYSROOT/lib/ld-linux-aarch64.so.1" "lib"
+cp -a "$SYSROOT/lib64/libm.so.6" "lib64"
+cp -a "$SYSROOT/lib64/libresolv.so.2" "lib64"
+cp -a "$SYSROOT/lib64/libc.so.6" "lib64"
 
 # TODO: Make device nodes
 echo making device nodes
@@ -160,13 +130,19 @@ make CROSS_COMPILE=aarch64-none-linux-gnu-
 # TODO: Copy the finder related scripts and executables to the /home directory
 # on the target rootfs
 echo copying my assignment files over
-cp writer ${OUTDIR}/rootfs/home
-cp finder-test.sh ${OUTDIR}/rootfs/home
-mkdir ${OUTDIR}/rootfs/home/conf
-cp conf/username.txt ${OUTDIR}/rootfs/home/conf
-cp conf/assignment.txt ${OUTDIR}/rootfs/home/conf
-cd ${OUTDIR}/rootfs/home
-sed -i "35s#.*#assignment='cat conf/assignment.txt'#" finder-test.sh
+cp writer finder.sh finder-test.sh "${OUTDIR}/rootfs/home/"
+
+sed -i "s#^assignment=.*#assignment=\$(cat conf/assignment.txt)#" "${OUTDIR}/rootfs/home/finder-test.sh"
+
+
+#cp finder-test.sh "${OUTDIR}/rootfs/home/"
+cp autorun-qemu.sh "${OUTDIR}/rootfs/home/"
+mkdir -p "${OUTDIR}/rootfs/home/conf"
+cp conf/username.txt conf/assignment.txt "${OUTDIR}/rootfs/home/conf/"
+#cp conf/assignment.txt "${OUTDIR}/rootfs/home/conf/"
+
+
+
 
 # TODO: Chown the root directory
 echo changing owner to root
