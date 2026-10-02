@@ -22,6 +22,7 @@
 #include <pthread.h>
 
 #include "aesdsocket.h"
+#include "queue.h"
 
 #define PORT_num "9000"
 
@@ -49,7 +50,7 @@ void* socket_WrkBee(void* thread_param)
     ssize_t ret;
     ssize_t bytes_read;
 
-    data->thread = pthread_self();
+    //data->thread = pthread_self();
 
     do //read client data stream
     {   //read the incoming data stream
@@ -104,9 +105,9 @@ void* socket_WrkBee(void* thread_param)
     //log debug messages
     syslog(LOG_DEBUG,"out of do while\n");
     syslog(LOG_DEBUG,"sig FLAG status %d\n", signal_received);
-    close(data->sock_conn_id);
+    close(data->sock_conn_id); //almost done here close socket connection
     
-    free(data->dataBuff);
+    free(data->dataBuff); //free the data buffer
     data->thread_complete_success = 1;
 
     return thread_param;
@@ -118,6 +119,7 @@ int main(int argc, char *argv[])
     struct sigaction mysig;
     struct addrinfo hints, *servinfo, *ptr;
     struct sockaddr_storage client_addr;
+
     socklen_t s_in_size;
     pid_t pid;
     int addrinfo_status;
@@ -130,8 +132,12 @@ int main(int argc, char *argv[])
     int sigStatus;
     int yes=1;
     char ipaddr_buf[64];
+    pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
     //char inDataBuff[1024];
     
+    SLIST_HEAD(slisthead, slist_data_s) head;
+    SLIST_INIT(&head);
+
     //open logging 
     openlog(NULL, 0, LOG_USER); // open the logging
     printf("hello server\n");
@@ -295,19 +301,40 @@ int main(int argc, char *argv[])
             }
             syslog(LOG_ERR, "accept has failed :( %d\n", errno);
         }
-
-
-
         //get the client ip address and log it
         struct sockaddr_in *s = (struct sockaddr_in *)&client_addr;
         inet_ntop(AF_INET, &(s->sin_addr), ipaddr_buf, sizeof ipaddr_buf);
         syslog(LOG_DEBUG,"ip address connected %s\n", ipaddr_buf);
+        slist_data_t *tvar = NULL;
+        struct thread_data *worker_data = malloc(sizeof(struct thread_data)); //allocate thread work bee memory
+        slist_data_t *datap = malloc(sizeof(slist_data_t)); //allocate list node
+        char *buffer = malloc(512 * sizeof(char)); //allocate data buffer for socket data stream freed by worker bee
+        worker_data->my_mutex = &file_mutex;
+        worker_data->file_id = fd;
+        worker_data->sock_conn_id = conn_fd;
+        worker_data->dataBuff = buffer;
 
+        datap->thread_d_ptr = worker_data;
 
+        SLIST_INSERT_HEAD(&head, datap, entries);
 
-        syslog(LOG_DEBUG, "Closed connection from %s\n", ipaddr_buf);
+        pthread_create(&worker_data->thread, NULL, socket_WrkBee, worker_data); //fly my worker bee!
+
+        SLIST_FOREACH_SAFE(datap, &head, entries, tvar)
+        {
+            if (datap->thread_d_ptr->thread_complete_success == 1)
+            {
+                syslog(LOG_DEBUG, "Closed connection from %s\n", ipaddr_buf);
+                if (datap == SLIST_FIRST(&head))
+                {
+                    SLIST_REMOVE_HEAD(&head, entries);
+                }
+                pthread_join(datap->thread_d_ptr->thread, NULL);
+                free(datap->thread_d_ptr);
+                free(datap);
+            }
+        }
     }   
-
     while(signal_received == 0); //waiting for signal to shutdown
     close(socket_fd);    //close out handlers
     close(fd);

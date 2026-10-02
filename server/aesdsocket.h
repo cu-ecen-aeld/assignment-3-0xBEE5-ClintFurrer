@@ -7,6 +7,7 @@
 
 #include <stdbool.h>
 #include <pthread.h>
+#include "queue.h"
 
 struct thread_data{
     pthread_mutex_t *my_mutex; //muxtex for file IO
@@ -15,6 +16,12 @@ struct thread_data{
     int file_id;
     char *dataBuff;
     bool thread_complete_success; //track if the tread is done
+};
+
+typedef struct slist_data_s slist_data_t;
+struct slist_data_s{
+    struct thread_data *thread_d_ptr; 
+    SLIST_ENTRY(slist_data_s) entries;
 };
 
 #endif /* MY_HEADER_H */
