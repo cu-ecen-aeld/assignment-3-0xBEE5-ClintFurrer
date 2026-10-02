@@ -18,6 +18,10 @@
 #include <syslog.h>
 #include <string.h>
 #include <signal.h>
+#include <time.h>
+#include <pthread.h>
+
+#include "aesdsocket.h"
 
 #define PORT_num "9000"
 
@@ -36,6 +40,79 @@ void handle_signal(int sig)
     }
 }
 
+void* socket_WrkBee(void* thread_param)
+{
+    struct thread_data* data = (struct thread_data *) thread_param;
+    int TX_RX_FLG = 0;
+    int in_cnt;
+    int mutex_status;
+    ssize_t ret;
+    ssize_t bytes_read;
+
+    data->thread = pthread_self();
+
+    do //read client data stream
+    {   //read the incoming data stream
+        in_cnt = recv(data->sock_conn_id, data->dataBuff, sizeof(data->dataBuff) - 1, 0);
+        if (in_cnt <= 0)
+        {
+            break; //client disconnectd or socket error
+        }
+        mutex_status = pthread_mutex_lock(data->my_mutex); 
+        if (mutex_status != 0)
+        {
+
+        }
+        ret = write(data->file_id, data->dataBuff, in_cnt); //start writing the data stream to file
+        pthread_mutex_unlock(data->my_mutex);
+        if (ret == -1)
+        {
+            syslog(LOG_ERR, "File write failed :( %d\n", errno);
+        }      
+        char *first_n = memchr(data->dataBuff, '\n', in_cnt); //look for the new line packet terminator 
+        if (first_n != NULL)
+        {
+            syslog(LOG_DEBUG,"new line dectected\n");
+            TX_RX_FLG = 1; //found termination of data stream
+        }            
+    } while (TX_RX_FLG != 1);
+    mutex_status = pthread_mutex_lock(data->my_mutex); 
+    fsync(data->file_id); //force data to file
+    lseek(data->file_id, 0, SEEK_SET); //set to the beginning of file
+    pthread_mutex_unlock(data->my_mutex);
+    TX_RX_FLG = 0; //reset FLG
+    do //send loop of receieved client data
+    {   //read data back out of the file
+        mutex_status = pthread_mutex_lock(data->my_mutex); 
+        bytes_read = read(data->file_id, data->dataBuff, sizeof(data->dataBuff));
+        pthread_mutex_unlock(data->my_mutex);
+        if (bytes_read == -1)
+        {
+            syslog(LOG_ERR, "Error reading file back to client: %d\n", errno);
+            TX_RX_FLG = 1;
+            break;
+        }
+        if (bytes_read == 0) //end of file
+        {
+            syslog(LOG_DEBUG,"hit read 0 confirm %ld\n", bytes_read);
+            TX_RX_FLG = 1; //exit
+            break;
+        }
+        syslog(LOG_DEBUG,"Sending! data back\n");
+        send(data->sock_conn_id, data->dataBuff, bytes_read, 0);
+    } while (TX_RX_FLG != 1);
+    //log debug messages
+    syslog(LOG_DEBUG,"out of do while\n");
+    syslog(LOG_DEBUG,"sig FLAG status %d\n", signal_received);
+    close(data->sock_conn_id);
+    
+    free(data->dataBuff);
+    data->thread_complete_success = 1;
+
+    return thread_param;
+}
+
+
 int main(int argc, char *argv[])
 {
     struct sigaction mysig;
@@ -53,7 +130,7 @@ int main(int argc, char *argv[])
     int sigStatus;
     int yes=1;
     char ipaddr_buf[64];
-    char inDataBuff[1024];
+    //char inDataBuff[1024];
     
     //open logging 
     openlog(NULL, 0, LOG_USER); // open the logging
@@ -218,62 +295,18 @@ int main(int argc, char *argv[])
             }
             syslog(LOG_ERR, "accept has failed :( %d\n", errno);
         }
+
+
+
         //get the client ip address and log it
         struct sockaddr_in *s = (struct sockaddr_in *)&client_addr;
         inet_ntop(AF_INET, &(s->sin_addr), ipaddr_buf, sizeof ipaddr_buf);
         syslog(LOG_DEBUG,"ip address connected %s\n", ipaddr_buf);
 
-        int TX_RX_FLG = 0;
-        int in_cnt;
-        ssize_t ret;
-        ssize_t bytes_read;
-        do //read client data stream
-        {   //read the incoming data stream
-            in_cnt = recv(conn_fd, inDataBuff, sizeof(inDataBuff) - 1, 0);
-            if (in_cnt <= 0)
-            {
-                break; //client disconnectd or socket error
-            }
-            ret = write(fd, inDataBuff, in_cnt); //start writing the data stream to file
-            if (ret == -1)
-            {
-                syslog(LOG_ERR, "File write failed :( %d\n", errno);
-            }
-            
-            char *first_n = memchr(inDataBuff, '\n', in_cnt); //look for the new line packet terminator 
-            if (first_n != NULL)
-            {
-                syslog(LOG_DEBUG,"new line dectected\n");
-                TX_RX_FLG = 1; //found termination of data stream
-            }            
-        } while (TX_RX_FLG != 1);
-        fsync(fd); //force data to file
-        lseek(fd, 0, SEEK_SET); //set to the beginning of file
-        TX_RX_FLG = 0; //reset FLG
-        do //send loop of receieved client data
-        {   //read data back out of the file
-            bytes_read = read(fd, inDataBuff, sizeof(inDataBuff));
-            if (bytes_read == -1)
-            {
-                syslog(LOG_ERR, "Error reading file back to client: %d\n", errno);
-                TX_RX_FLG = 1;
-                break;
-            }
-            if (bytes_read == 0) //end of file
-            {
-                syslog(LOG_DEBUG,"hit read 0 confirm %ld\n", bytes_read);
-                TX_RX_FLG = 1; //exit
-                break;
-            }
-            syslog(LOG_DEBUG,"Sending! data back\n");
-            send(conn_fd, inDataBuff, bytes_read, 0);
-        } while (TX_RX_FLG != 1);
-        //log debug messages
-        syslog(LOG_DEBUG,"out of do while\n");
-        syslog(LOG_DEBUG,"sig FLAG status %d\n", signal_received);
-        close(conn_fd);
+
+
         syslog(LOG_DEBUG, "Closed connection from %s\n", ipaddr_buf);
-    }
+    }   
 
     while(signal_received == 0); //waiting for signal to shutdown
     close(socket_fd);    //close out handlers
