@@ -369,13 +369,14 @@ int main(int argc, char *argv[])
         {
             timestampFLG = 1; //only needs to run once!
             struct thread_data *worker_data = malloc(sizeof(struct thread_data)); //allocate thread work bee memory
+            char *buffer = malloc(2 * sizeof(char));
             datap = malloc(sizeof(slist_data_t)); //allocate list node
             worker_data->my_mutex = &file_mutex;
             worker_data->file_id = fd;
             worker_data->sock_conn_id = conn_fd;
-            worker_data->dataBuff = NULL;
+            worker_data->dataBuff = buffer; //if I don't then the close out gets stuck freeing memory
             worker_data->thread_complete_success = 0;
-            worker_data->buffLen = NULL;
+            worker_data->buffLen = 0;
             datap->thread_d_ptr = worker_data; 
 
             SLIST_INSERT_HEAD(&head, datap, entries);
