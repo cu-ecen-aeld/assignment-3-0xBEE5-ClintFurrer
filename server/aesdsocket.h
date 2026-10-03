@@ -15,6 +15,7 @@ struct thread_data{
     int sock_conn_id;
     int file_id;
     char *dataBuff;
+    int buffLen;
     bool thread_complete_success; //track if the tread is done
 };
 
