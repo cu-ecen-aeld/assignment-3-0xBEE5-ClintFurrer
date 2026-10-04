@@ -6,6 +6,7 @@ TARGET ?= aesdsocket
 
 SRCS = aesdsocket.c
 OBJS ?= $(SRCS:.c=.o)
+LDFLAGS ?= -lpthread -lrt
 DEPS = aesdsocket.h
 
 
