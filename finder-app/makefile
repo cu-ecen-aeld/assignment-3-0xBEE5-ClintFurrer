@@ -1,6 +1,6 @@
 CROSS_COMPILE ?= 
-CC=$(CROSS_COMPILE)gcc
-CFLAGS=-g -Wall
+CC ?= $(CROSS_COMPILE)gcc
+CFLAGS ?= -g -Wall
 
 # The 'all' target makes 'writer' the default build goal
 all: writermake
