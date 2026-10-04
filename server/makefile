@@ -14,7 +14,7 @@ DEPS = aesdsocket.h
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CC) -o $(TARGET) $(OBJS)
+	$(CC) -o $(TARGET) $(OBJS) $(LDFLAGS)
 
 # Rule to compile the .c file into a .o file
 %.o: %.c $(DEPS)
