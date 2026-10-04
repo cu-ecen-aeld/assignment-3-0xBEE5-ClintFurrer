@@ -1,11 +1,11 @@
 CROSS_COMPILE ?= 
-CC=$(CROSS_COMPILE)gcc
-CFLAGS= -g -Wall -Werror
+CC ?= $(CROSS_COMPILE)gcc
+CFLAGS ?= -g -Wall -Werror
 
-TARGET = aesdsocket
+TARGET ?= aesdsocket
 
 SRCS = aesdsocket.c
-OBJS = $(SRCS:.c=.o)
+OBJS ?= $(SRCS:.c=.o)
 DEPS = aesdsocket.h
 
 
