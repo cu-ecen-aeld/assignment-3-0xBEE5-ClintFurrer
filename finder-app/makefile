@@ -1,16 +1,27 @@
 CROSS_COMPILE ?= 
 CC ?= $(CROSS_COMPILE)gcc
-CFLAGS ?= -g -Wall
+CFLAGS ?= -g -Wall -Werror
+
+TARGET ?= writer
+
+SRCS = writer.c
+OBJS ?= $(SRCS:.c=.o)
+LDFLAGS ?= -lpthread -lrt
 
 # The 'all' target makes 'writer' the default build goal
-all: writermake
+all: $(TARGET)
 
-writermake: writer.o
-	$(CC) -o writer writer.o
+
+$(TARGET): $(OBJS)
+	$(CC) -o $(TARGET) $(OBJS)
 
 # Rule to compile the .c file into a .o file
-writer.o: writer.c
-	$(CC) $(CFLAGS) -c writer.c -o writer.o
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Rule to compile the .c file into a .o file
+#writer.o: writer.c
+#	$(CC) $(CFLAGS) -c writer.c -o writer.o
 
 .PHONY: clean
 clean:
