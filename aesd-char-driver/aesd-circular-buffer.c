@@ -16,6 +16,14 @@
 
 #include "aesd-circular-buffer.h"
 
+#ifdef __KERNEL__
+#define DEBUG_LOG(msg,...) kprintf("LOG: " msg "\n" , ##__VA_ARGS__)
+#define ERROR_LOG(msg,...) kprintf("ERROR: " msg "\n" , ##__VA_ARGS__)
+#else
+#define DEBUG_LOG(msg,...) printf("LOG: " msg "\n" , ##__VA_ARGS__)
+#define ERROR_LOG(msg,...) printf("ERROR: " msg "\n" , ##__VA_ARGS__)
+#endif
+
 /**
  * @param buffer the buffer to search for corresponding offset.  Any necessary locking must be performed by caller.
  * @param char_offset the position to search for in the buffer list, describing the zero referenced
@@ -29,6 +37,7 @@
 struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct aesd_circular_buffer *buffer,
             size_t char_offset, size_t *entry_offset_byte_rtn )
 {
+
     /**
     * TODO: implement per description
     */
