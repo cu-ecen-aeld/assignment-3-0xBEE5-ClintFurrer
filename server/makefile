@@ -1,11 +1,12 @@
 CROSS_COMPILE ?= 
-CC=$(CROSS_COMPILE)gcc
-CFLAGS= -g -Wall -Werror
+CC ?= $(CROSS_COMPILE)gcc
+CFLAGS ?= -g -Wall -Werror
 
-TARGET = aesdsocket
+TARGET ?= aesdsocket
 
 SRCS = aesdsocket.c
-OBJS = $(SRCS:.c=.o)
+OBJS ?= $(SRCS:.c=.o)
+LDFLAGS ?= -lpthread -lrt
 DEPS = aesdsocket.h
 
 
@@ -13,7 +14,7 @@ DEPS = aesdsocket.h
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CC) -o $(TARGET) $(OBJS)
+	$(CC) -o $(TARGET) $(OBJS) $(LDFLAGS)
 
 # Rule to compile the .c file into a .o file
 %.o: %.c $(DEPS)
