@@ -32,6 +32,11 @@ int aesd_open(struct inode *inode, struct file *filp)
     /**
      * TODO: handle open
      */
+    struct aesd_dev *dev;
+
+    dev = container_of(inode->i_cdev, struct aesd_dev, cdev);
+    filp->private_data = dev;
+    //TODO: ulocking setup
     return 0;
 }
 
@@ -47,22 +52,95 @@ int aesd_release(struct inode *inode, struct file *filp)
 ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
                 loff_t *f_pos)
 {
+    struct aesd_dev *dev = filp->private_data;
+    //struct aesd_buffer_entry *tmp_entry;
     ssize_t retval = 0;
+    size_t entry_offset;
+    size_t bytes_to_copy;
+    //tmp_entry->buffptr = NULL;
+    //tmp_entry->size = 0;
     PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
     /**
      * TODO: handle read
-     */
+     */   
+     struct aesd_buffer_entry *tmp_entry = aesd_circular_buffer_find_entry_offset_for_fpos(&dev->buffer, *f_pos, &entry_offset);
+     if (tmp_entry != NULL)
+     {
+        if ((tmp_entry->size - entry_offset) < count)
+        {
+            bytes_to_copy = tmp_entry->size - entry_offset;
+        }
+        else
+        {
+            bytes_to_copy = count;
+        }
+        if (copy_to_user(buf, tmp_entry->buffptr + entry_offset, bytes_to_copy))
+        {
+            return -EFAULT; //copy failed
+        }
+        *f_pos += bytes_to_copy;
+        retval = bytes_to_copy;
+     }
+     else
+     {
+        retval = 0;
+     }
     return retval;
 }
 
 ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 loff_t *f_pos)
 {
+    struct aesd_dev *dev = filp->private_data;
     ssize_t retval = -ENOMEM;
     PDEBUG("write %zu bytes with offset %lld",count,*f_pos);
     /**
      * TODO: handle write
      */
+    //get memory to hold 
+    char *usr_tmp = kmalloc(count, GFP_KERNEL);
+    if (usr_tmp == NULL)
+    {
+        return retval;
+    }
+    //copy user to kernel
+    if (copy_from_user(usr_tmp, buf, count))
+    {
+        kfree(usr_tmp);
+        return -EFAULT; //copy failed
+    }
+    //put new user command into working buff
+    char *mybuf = krealloc(dev->working_buffer, dev->work_buff_size + count, GFP_KERNEL);
+    if (mybuf == NULL)
+    {
+        kfree(usr_tmp);
+        return retval;
+    }
+    dev->working_buffer = mybuf;
+    memcpy(dev->working_buffer+ dev->work_buff_size, usr_tmp, count); //move pointer to the end of data in working buffer
+    dev->work_buff_size += count; //update size
+    PDEBUG("updated working buff size %zu", dev->work_buff_size);
+    kfree(usr_tmp);
+
+    char *result = memchr(dev->working_buffer, '\n', dev->work_buff_size);
+    if (result != NULL) //found new line
+    {
+        PDEBUG("New line found!");
+        //put into circular buffer
+        struct aesd_buffer_entry newEntry;
+        newEntry.buffptr = dev->working_buffer;
+        newEntry.size = dev->work_buff_size;
+        aesd_circular_buffer_add_entry(&dev->buffer, &newEntry);
+        retval = dev->work_buff_size;
+        dev->work_buff_size = 0;
+        kfree(dev->working_buffer);
+    }
+    else
+    {
+        PDEBUG("returning 0 nothing writen to CB");
+        retval = 0;
+    }
+
     return retval;
 }
 struct file_operations aesd_fops = {
@@ -103,8 +181,11 @@ int aesd_init_module(void)
     memset(&aesd_device,0,sizeof(struct aesd_dev));
 
     /**
-     * TODO: initialize the AESD specific portion of the device
+     * initialize the AESD specific portion of the device
      */
+    aesd_circular_buffer_init(&aesd_device.buffer); //initialize circular buffer
+    aesd_device.work_buff_size = 0;
+    aesd_device.working_buffer = NULL;
 
     result = aesd_setup_cdev(&aesd_device);
 
@@ -118,12 +199,19 @@ int aesd_init_module(void)
 void aesd_cleanup_module(void)
 {
     dev_t devno = MKDEV(aesd_major, aesd_minor);
-
+    uint8_t idx;
+    struct aesd_buffer_entry *entry;
     cdev_del(&aesd_device.cdev);
 
     /**
      * TODO: cleanup AESD specific poritions here as necessary
      */
+
+    AESD_CIRCULAR_BUFFER_FOREACH(entry, &aesd_device.buffer, idx)
+    {
+        kfree(entry->buffptr);
+    }
+    kfree(aesd_device.working_buffer);
 
     unregister_chrdev_region(devno, 1);
 }
