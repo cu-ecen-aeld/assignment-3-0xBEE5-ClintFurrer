@@ -53,16 +53,15 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
                 loff_t *f_pos)
 {
     struct aesd_dev *dev = filp->private_data;
-    //struct aesd_buffer_entry *tmp_entry;
     ssize_t retval = 0;
     size_t entry_offset;
     size_t bytes_to_copy;
-    //tmp_entry->buffptr = NULL;
-    //tmp_entry->size = 0;
+
     PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
-    /**
-     * TODO: handle read
-     */   
+    if (mutex_lock_interruptible(&dev->lock))
+    {
+        return -ERESTARTSYS;
+    } 
      struct aesd_buffer_entry *tmp_entry = aesd_circular_buffer_find_entry_offset_for_fpos(&dev->buffer, *f_pos, &entry_offset);
      if (tmp_entry != NULL)
      {
@@ -76,6 +75,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
         }
         if (copy_to_user(buf, tmp_entry->buffptr + entry_offset, bytes_to_copy))
         {
+            mutex_unlock(&dev->lock);
             return -EFAULT; //copy failed
         }
         *f_pos += bytes_to_copy;
@@ -85,6 +85,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
      {
         retval = 0;
      }
+    mutex_unlock(&dev->lock);
     return retval;
 }
 
@@ -94,19 +95,22 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     struct aesd_dev *dev = filp->private_data;
     ssize_t retval = -ENOMEM;
     PDEBUG("write %zu bytes with offset %lld",count,*f_pos);
-    /**
-     * TODO: handle write
-     */
+    if (mutex_lock_interruptible(&dev->lock))
+    {
+        return -ERESTARTSYS;
+    }
     //get memory to hold 
     char *usr_tmp = kmalloc(count, GFP_KERNEL);
     if (usr_tmp == NULL)
     {
+        mutex_unlock(&dev->lock);
         return retval;
     }
     //copy user to kernel
     if (copy_from_user(usr_tmp, buf, count))
     {
         kfree(usr_tmp);
+        mutex_unlock(&dev->lock);
         return -EFAULT; //copy failed
     }
     //put new user command into working buff
@@ -114,6 +118,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     if (mybuf == NULL)
     {
         kfree(usr_tmp);
+        mutex_unlock(&dev->lock);
         return retval;
     }
     dev->working_buffer = mybuf;
@@ -138,6 +143,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         dev->work_buff_size = 0;
         dev->working_buffer = NULL;
     }
+    mutex_unlock(&dev->lock);
     return count;
 }
 struct file_operations aesd_fops = {
@@ -183,7 +189,7 @@ int aesd_init_module(void)
     aesd_circular_buffer_init(&aesd_device.buffer); //initialize circular buffer
     aesd_device.work_buff_size = 0;
     aesd_device.working_buffer = NULL;
-
+    mutex_init(&aesd_device.lock);
     result = aesd_setup_cdev(&aesd_device);
 
     if( result ) {
