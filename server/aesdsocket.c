@@ -25,6 +25,8 @@
 #include "aesdsocket.h"
 #include "queue.h"
 
+#define USE_AESD_CHAR_DEVICE 1
+
 #define PORT_num "9000"
 
 volatile sig_atomic_t signal_received = 0;
@@ -74,8 +76,19 @@ void* socket_WrkBee(void* thread_param)
     {
         syslog(LOG_DEBUG, "worker lock muxtex error %d\n", errno);   
     }
+#ifndef USE_AESD_CHAR_DEVICE     
     fsync(data->file_id); //force data to file
     lseek(data->file_id, 0, SEEK_SET); //set to the beginning of file
+#else
+    close(data->file_id);
+    data->file_id = open("/dev/aesdchar", O_RDWR);
+    if (data->file_id == -1)
+    {
+        syslog(LOG_ERR, "File failed to open in worker :( %d\n", errno);
+        data->thread_complete_success = 1; //So I get cleaned
+        return 0;
+    }
+#endif
     TX_RX_FLG = 0; //reset FLG
     do //send loop of receieved client data
     {   //read data back out of the file
@@ -105,6 +118,7 @@ void* socket_WrkBee(void* thread_param)
     return NULL;
 }
 
+#ifndef USE_AESD_CHAR_DEVICE
 void* timestamper(void* thread_param)
 {
     struct thread_data* data = (struct thread_data *) thread_param;
@@ -152,6 +166,7 @@ void* timestamper(void* thread_param)
     data->thread_complete_success = 1;
     return NULL;
 }
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -310,9 +325,12 @@ int main(int argc, char *argv[])
             close(fdclose);
         }
     }
-
+#ifndef USE_AESD_CHAR_DEVICE 
     // open the file if it does not exist create it
     int fd = open("/var/tmp/aesdsocketdata", O_RDWR | O_CREAT | O_APPEND, 0644); 
+ #else
+    int fd = open("/dev/aesdchar", O_RDWR);
+ #endif
     if (fd == -1)
     {
         syslog(LOG_ERR, "File failed to open :( %d\n", errno);
@@ -368,6 +386,7 @@ int main(int argc, char *argv[])
         if (timestampFLG == 0)
         {
             timestampFLG = 1; //only needs to run once!
+#ifndef USE_AESD_CHAR_DEVICE            
             struct thread_data *worker_data = malloc(sizeof(struct thread_data)); //allocate thread work bee memory
             char *buffer = malloc(2 * sizeof(char));
             datap = malloc(sizeof(slist_data_t)); //allocate list node
@@ -382,6 +401,7 @@ int main(int argc, char *argv[])
             SLIST_INSERT_HEAD(&head, datap, entries);
 
             pthread_create(&worker_data->thread, NULL, timestamper, worker_data); //off to timestamp the file
+#endif
         }
 
         while(datap != NULL)
@@ -421,27 +441,31 @@ int main(int argc, char *argv[])
     {
         syslog(LOG_DEBUG, "Caugth SIGTERM Signal\n");
     } 
-
+    datap = SLIST_FIRST(&head);
     while(datap != NULL)
     {
         next_node = SLIST_NEXT(datap, entries);
         if (datap->thread_d_ptr->thread_complete_success == 1)
         {
             pthread_join(datap->thread_d_ptr->thread, NULL);
+            SLIST_REMOVE(&head, datap, slist_data_s, entries);
             free(datap->thread_d_ptr->dataBuff); //free the data buffer
             free(datap->thread_d_ptr);
             free(datap);
+            
         }
         datap = next_node;
     }
 
     close(socket_fd);    //close out handlers
+#ifndef USE_AESD_CHAR_DEVICE     
     close(fd);    
+#endif
     // Clear the list head macro tracking reference
     SLIST_INIT(&head); 
 
     syslog(LOG_INFO, "All thread memory cleaned up gracefully \n");
-
+#ifndef USE_AESD_CHAR_DEVICE 
     int del_status = remove("/var/tmp/aesdsocketdata"); //delete file
     if (del_status !=0)
     {
@@ -451,6 +475,7 @@ int main(int argc, char *argv[])
     {
         syslog(LOG_DEBUG,"file is gone!\n");
     }
+#endif
     syslog(LOG_DEBUG,"GOOD Bye!\n");
     return 0;
 }
