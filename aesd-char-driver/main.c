@@ -130,16 +130,14 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         struct aesd_buffer_entry newEntry;
         newEntry.buffptr = dev->working_buffer;
         newEntry.size = dev->work_buff_size;
-        aesd_circular_buffer_add_entry(&dev->buffer, &newEntry);
+        const char *entry_ptr = aesd_circular_buffer_add_entry(&dev->buffer, &newEntry);
+        if (entry_ptr != NULL)
+        {
+            kfree(entry_ptr);
+        }
         dev->work_buff_size = 0;
         dev->working_buffer = NULL;
     }
-    else
-    {
-        PDEBUG("returning 0 nothing writen to CB");
-        
-    }
-
     return count;
 }
 struct file_operations aesd_fops = {
