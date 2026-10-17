@@ -131,17 +131,16 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         newEntry.buffptr = dev->working_buffer;
         newEntry.size = dev->work_buff_size;
         aesd_circular_buffer_add_entry(&dev->buffer, &newEntry);
-        retval = dev->work_buff_size;
         dev->work_buff_size = 0;
-        kfree(dev->working_buffer);
+        dev->working_buffer = NULL;
     }
     else
     {
         PDEBUG("returning 0 nothing writen to CB");
-        retval = 0;
+        
     }
 
-    return retval;
+    return count;
 }
 struct file_operations aesd_fops = {
     .owner =    THIS_MODULE,
