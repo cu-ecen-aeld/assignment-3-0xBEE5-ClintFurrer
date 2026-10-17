@@ -85,12 +85,9 @@ const char *aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, 
     {
         const char *old_buff_ptr = buffer->entry[buffer->in_offs].buffptr;
         buffer->entry[buffer->in_offs] = *add_entry;
-        buffer->in_offs++; //move both buffer idx ahead one
-        buffer->out_offs++;
-        if (buffer->out_offs > AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
-        {
-            buffer->out_offs = 0;
-        }
+        buffer->in_offs = (buffer->in_offs + 1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; //move both buffer idx ahead one
+        buffer->out_offs = (buffer->out_offs + 1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+
         PDEBUG("Buffer full overwriting");
         return old_buff_ptr;
     }
