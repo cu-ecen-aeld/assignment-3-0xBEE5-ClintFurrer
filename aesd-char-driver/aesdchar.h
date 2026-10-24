@@ -29,9 +29,6 @@
 
 struct aesd_dev
 {
-    /**
-     * TODO: Add structure(s) and locks needed to complete assignment requirements
-     */
     char *working_buffer;
     size_t work_buff_size;
     struct aesd_circular_buffer buffer;
@@ -48,5 +45,6 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 loff_t *f_pos);
 int aesd_init_module(void);
 void aesd_cleanup_module(void);
+long aesd_ioclt(struct file *filp, unsigned int cmd, unsigned long arg);
 
 #endif /* AESD_CHAR_DRIVER_AESDCHAR_H_ */

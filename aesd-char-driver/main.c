@@ -18,13 +18,72 @@
 #include <linux/cdev.h>
 #include <linux/fs.h> // file_operations
 #include "aesdchar.h"
+#include "aesd_ioctl.h"
+
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
 
-MODULE_AUTHOR("Your Name Here"); /** TODO: fill in your name **/
+MODULE_AUTHOR("Clint Furrer"); 
 MODULE_LICENSE("Dual BSD/GPL");
 
 struct aesd_dev aesd_device;
+
+/**
+ *  Caller reponsible for locking Mutex.
+ *  returns current size of the CB buffer 
+ */
+static loff_t buf_size_helper(struct file *filp)
+{
+    uint8_t idx;
+    struct aesd_dev *dev = filp->private_data;
+    struct aesd_buffer_entry *entry;
+    size_t cal_buf_size = 0;
+
+    AESD_CIRCULAR_BUFFER_FOREACH(entry, &dev->buffer, idx)
+    {
+        if (entry->buffptr != NULL)
+        {
+            cal_buf_size += entry->size;
+        }
+    }
+    return (loff_t)cal_buf_size;
+}
+
+static loff_t aesd_llseek(struct file *filp, loff_t offset, int whence)
+{
+    struct aesd_dev *dev = filp->private_data;
+    loff_t tmpSize;
+    loff_t retSize;
+
+    if (mutex_lock_interruptible(&dev->lock))
+    {
+        return -ERESTARTSYS;
+    } 
+    tmpSize = buf_size_helper(filp);
+    PDEBUG("size helper returned %lld", tmpSize);
+    retSize = fixed_size_llseek(filp, offset, whence, tmpSize);
+    PDEBUG("llseek returned %lld", retSize);
+    mutex_unlock(&dev->lock);
+    return retSize;
+}
+
+static long aesd_adjust_file_offset(struct file *filp, unsigned int write_cmd, unsigned int write_cmd_offset)
+{
+    struct aesd_dev *dev = filp->private_data;
+    uint8_t current_idx = dev->buffer.out_offs;
+
+    if (write_cmd > AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+    {
+        return -EINVAL;
+    }
+
+    
+
+
+    dev->buffer.entry[write_cmd_offset];
+
+    return 0;
+}
 
 int aesd_open(struct inode *inode, struct file *filp)
 {
@@ -135,6 +194,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         struct aesd_buffer_entry newEntry;
         newEntry.buffptr = dev->working_buffer;
         newEntry.size = dev->work_buff_size;
+        *f_pos += dev->work_buff_size;
         const char *entry_ptr = aesd_circular_buffer_add_entry(&dev->buffer, &newEntry);
         if (entry_ptr != NULL)
         {
@@ -146,10 +206,49 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     mutex_unlock(&dev->lock);
     return count;
 }
+
+long aesd_ioclt(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    int retval = 0;
+
+    //check if the right cmd is for us
+    if (_IOC_TYPE(cmd) != AESD_IOC_MAGIC) 
+    {
+        return -ENOTTY;
+    }
+	if (_IOC_NR(cmd) > AESDCHAR_IOC_MAXNR) 
+    {
+        return -ENOTTY;
+    }
+
+    switch (cmd)
+    {
+        case AESDCHAR_IOCSEEKTO:
+            struct aesd_seekto seekto;
+            if (copy_from_user(&seekto, (const void __user *)arg, sizeof(seekto)) != 0)
+            {
+                retval = EFAULT;
+            }
+            else
+            {
+                retval = aesd_adjust_file_offset(filp, seekto.write_cmd, seekto.write_cmd_offset);
+            }
+            break;
+        
+        default:
+            return -ENOTTY;
+            break;
+    }
+
+    return retval;
+}
+
 struct file_operations aesd_fops = {
     .owner =    THIS_MODULE,
+    .llseek =   aesd_llseek,
     .read =     aesd_read,
     .write =    aesd_write,
+    .unlocked_ioctl = aesd_ioclt,
     .open =     aesd_open,
     .release =  aesd_release,
 };
@@ -167,8 +266,6 @@ static int aesd_setup_cdev(struct aesd_dev *dev)
     }
     return err;
 }
-
-
 
 int aesd_init_module(void)
 {
