@@ -21,9 +21,11 @@
 #include <signal.h>
 #include <sys/time.h>
 #include <pthread.h>
+#include <sys/ioctl.h>
 
 #include "aesdsocket.h"
 #include "queue.h"
+#include "../aesd-char-driver/aesd_ioctl.h"
 
 #define USE_AESD_CHAR_DEVICE 1
 
@@ -41,11 +43,13 @@ void* socket_WrkBee(void* thread_param)
 {
     struct thread_data* data = (struct thread_data *) thread_param;
     int TX_RX_FLG = 0;
+    int CMD_FLG = 0;
     int in_cnt;
     int mutex_status;
     ssize_t ret;
     ssize_t bytes_read;
-
+    unsigned int cmd = 0;
+    unsigned int cmd_offset = 0;
     do //read client data stream
     {   //read the incoming data stream
         in_cnt = recv(data->sock_conn_id, data->dataBuff, data->buffLen - 1, 0);
@@ -53,23 +57,50 @@ void* socket_WrkBee(void* thread_param)
         {
             break; //client disconnectd or socket error
         }
+        data->dataBuff[in_cnt] = '\0';
         mutex_status = pthread_mutex_lock(data->my_mutex); //lock for file write
         if (mutex_status != 0)
         {
             syslog(LOG_DEBUG, "worker lock muxtex error %d\n", errno);   
         }
-        ret = write(data->file_id, data->dataBuff, in_cnt); //start writing the data stream to file
-        pthread_mutex_unlock(data->my_mutex);
-        if (ret == -1)
+        int result = strncmp(data->dataBuff, "AESDCHAR_IOCSEEKTO:", 19);
+        if (result == 0)
         {
-            syslog(LOG_ERR, "File write failed :( %d\n", errno);
-        }      
-        char *first_n = memchr(data->dataBuff, '\n', in_cnt); //look for the new line packet terminator 
-        if (first_n != NULL)
+            const char *cmd_num_start = data->dataBuff + 19;
+            if (sscanf(cmd_num_start, "%d,%d\n", &cmd, &cmd_offset) == 2)
+            {
+                syslog(LOG_DEBUG, "got cmd %d\n", cmd);
+                syslog(LOG_DEBUG, "got cmd offset %d\n", cmd_offset);
+                TX_RX_FLG = 1; //found termination of data stream
+                CMD_FLG = 1;
+            }
+            else
+            {
+                syslog(LOG_DEBUG, "malformed command\n");
+                TX_RX_FLG = 1;
+            }
+            pthread_mutex_unlock(data->my_mutex);
+            if (ret == -1)
+            {
+                syslog(LOG_ERR, "File write failed :( %d\n", errno);
+            } 
+        }
+        else
         {
-            syslog(LOG_DEBUG,"new line dectected\n");
-            TX_RX_FLG = 1; //found termination of data stream
-        }            
+            ret = write(data->file_id, data->dataBuff, in_cnt); //start writing the data stream to file
+            pthread_mutex_unlock(data->my_mutex);
+            if (ret == -1)
+            {
+                syslog(LOG_ERR, "File write failed :( %d\n", errno);
+            }      
+            char *first_n = memchr(data->dataBuff, '\n', in_cnt); //look for the new line packet terminator 
+            if (first_n != NULL)
+            {
+                syslog(LOG_DEBUG,"new line dectected\n");
+                TX_RX_FLG = 1; //found termination of data stream
+                //cmd_cnt++;
+            }   
+        }         
     } while (TX_RX_FLG != 1);
     mutex_status = pthread_mutex_lock(data->my_mutex);  //this whole area is critical because of the file seek and then read
     if (mutex_status != 0)
@@ -78,16 +109,27 @@ void* socket_WrkBee(void* thread_param)
     }
 #ifndef USE_AESD_CHAR_DEVICE     
     fsync(data->file_id); //force data to file
-    lseek(data->file_id, 0, SEEK_SET); //set to the beginning of file
 #else
-    close(data->file_id);
-    data->file_id = open("/dev/aesdchar", O_RDWR);
-    if (data->file_id == -1)
+
+    if (CMD_FLG == 0)
     {
-        syslog(LOG_ERR, "File failed to open in worker :( %d\n", errno);
-        data->thread_complete_success = 1; //So I get cleaned
-        return 0;
+        lseek(data->file_id, 0, SEEK_SET); //set to the beginning of file
     }
+    else
+    {
+        struct aesd_seekto seekto;
+        seekto.write_cmd = cmd;
+        seekto.write_cmd_offset = cmd_offset;
+        int result_ret = ioctl(data->file_id, AESDCHAR_IOCSEEKTO, &seekto);
+        if (result_ret != 0)
+        {
+            pthread_mutex_unlock(data->my_mutex);
+            syslog(LOG_ERR, "ioctl has had an error :( %d\n", errno); 
+            return 0;
+        }
+        CMD_FLG = 0;
+    }
+
 #endif
     TX_RX_FLG = 0; //reset FLG
     do //send loop of receieved client data

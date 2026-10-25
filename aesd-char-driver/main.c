@@ -70,17 +70,49 @@ static loff_t aesd_llseek(struct file *filp, loff_t offset, int whence)
 static long aesd_adjust_file_offset(struct file *filp, unsigned int write_cmd, unsigned int write_cmd_offset)
 {
     struct aesd_dev *dev = filp->private_data;
-    uint8_t current_idx = dev->buffer.out_offs;
+    struct aesd_buffer_entry *currentEntry;
+    uint8_t idx = dev->buffer.out_offs;
+    uint8_t cmd_cnt = 0;
+    loff_t runningtotal = 0;
 
-    if (write_cmd > AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+    if (write_cmd >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
     {
         return -EINVAL;
     }
 
+    if (mutex_lock_interruptible(&dev->lock))
+    {
+        return -ERESTARTSYS;
+    } 
+    while(cmd_cnt < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+    {
+        currentEntry = &dev->buffer.entry[idx];
+        if (currentEntry->buffptr == NULL)
+        {
+            mutex_unlock(&dev->lock);
+            return -EINVAL;
+        }
+        if (cmd_cnt >= write_cmd)
+        {
+            //check if the offset is big then entry->size
+            if (write_cmd_offset >= currentEntry->size)
+            {
+                mutex_unlock(&dev->lock);
+                return -EINVAL;
+            }
+            break; //found the write_cmd spot
+        }
+        else
+        {
+            runningtotal += currentEntry->size; //add size to current running total
+            idx = (idx +1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; //wrap buffer idx
+            cmd_cnt++; //command spot
+        }
+    }
     
+    filp->f_pos = runningtotal + write_cmd_offset; //update f_pos
 
-
-    dev->buffer.entry[write_cmd_offset];
+    mutex_unlock(&dev->lock);
 
     return 0;
 }
@@ -231,6 +263,9 @@ long aesd_ioclt(struct file *filp, unsigned int cmd, unsigned long arg)
             }
             else
             {
+                PDEBUG("in ioclt");
+                PDEBUG("got cmd %d", seekto.write_cmd);
+                PDEBUG("got offset %d", seekto.write_cmd_offset);
                 retval = aesd_adjust_file_offset(filp, seekto.write_cmd, seekto.write_cmd_offset);
             }
             break;
