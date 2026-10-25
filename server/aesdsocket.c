@@ -57,7 +57,7 @@ void* socket_WrkBee(void* thread_param)
         {
             break; //client disconnectd or socket error
         }
-        data->dataBuff[in_cnt] = '\0';
+        data->dataBuff[in_cnt] = '\0'; //for the strncmp function
         mutex_status = pthread_mutex_lock(data->my_mutex); //lock for file write
         if (mutex_status != 0)
         {
@@ -98,7 +98,6 @@ void* socket_WrkBee(void* thread_param)
             {
                 syslog(LOG_DEBUG,"new line dectected\n");
                 TX_RX_FLG = 1; //found termination of data stream
-                //cmd_cnt++;
             }   
         }         
     } while (TX_RX_FLG != 1);
@@ -110,7 +109,6 @@ void* socket_WrkBee(void* thread_param)
 #ifndef USE_AESD_CHAR_DEVICE     
     fsync(data->file_id); //force data to file
 #else
-
     if (CMD_FLG == 0)
     {
         lseek(data->file_id, 0, SEEK_SET); //set to the beginning of file
@@ -129,7 +127,6 @@ void* socket_WrkBee(void* thread_param)
         }
         CMD_FLG = 0;
     }
-
 #endif
     TX_RX_FLG = 0; //reset FLG
     do //send loop of receieved client data
